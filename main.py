@@ -1,13 +1,13 @@
 import os
+import re
 
 import google.generativeai as genai
-import pyttsx3
-import requests
-import speech_recognition as sr
+from bs4 import BeautifulSoup
 from dotenv import load_dotenv
 from google.generativeai.types.generation_types import json
+from markdown import markdown
 
-from modules import weather
+from modules import jokes, weather
 
 load_dotenv()
 
@@ -22,80 +22,6 @@ header = """
 ███████╗██████╔╝╚██████╔╝   ██║   
 ╚══════╝╚═════╝  ╚═════╝    ╚═╝   
 """
-
-
-class Mode:
-    _mode = None
-
-    def get_mode(self):
-        return self._mode
-
-    def set_mode(self, mode):
-        self._mode = mode
-
-
-mode = Mode()
-engine = pyttsx3.init()
-
-
-def get_mode():
-    while True:
-        print("Modes:\n1. Speech\n2. Text")
-        try:
-            inp = int(input("Enter Mode: "))
-        except Exception:
-            continue
-        if inp == 1:
-            mode.set_mode("speech")
-            break
-        elif inp == 2:
-            mode.set_mode("text")
-            break
-        else:
-            print(f"{RED}Error: Enter Correct Value{NC}\n")
-    return mode
-
-
-def output(text):
-    if mode.get_mode() == "speech":
-        engine.say(text)
-        engine.runAndWait()
-    else:
-        print(text)
-
-
-def inp(text):
-    if mode.get_mode() == "speech":
-        output(text)
-        inp = recognize_speech()
-        return inp
-    else:
-        return input(text)
-
-
-def recognize_speech():
-    recognizer = sr.Recognizer()
-    mic = sr.Microphone()
-    output("Please Say Something..")
-    with mic as source:
-        recognizer.adjust_for_ambient_noise(source)
-        try:
-            audio = recognizer.listen(source, timeout=5)
-        except sr.WaitTimeoutError:
-            output("Timeout. No Speech Detected")
-            return " "
-
-    try:
-        output("Recognizing speech...")
-        text = recognizer.recognize_google(audio)
-        output(f"You said: {text}")
-        return text
-    except sr.UnknownValueError:
-        print("Sorry, I did not understand that.")
-        return ""
-    except sr.RequestError:
-        print("Sorry, the speech recognition service is unavailable.")
-        return ""
 
 
 def setup_ai():
@@ -155,14 +81,12 @@ def response(user_input, model):
 
 
 def handle_response(ext_json, model):
-    ext_json_data = json.loads(ext_json)
     try:
         ext_json = ext_json.replace("'", '"')
         json_res = json.loads(ext_json)
-        api_res = handle_api(json_res, model)
+        api_res = handle_api(json_res)
         if isinstance(api_res, dict):
-            if "weather_info" in api_res:
-                return api_res["weather_info"]
+            return api_res["content"]
         else:
             user_input = json_res.get("query")
             chat_session = model.start_chat(
@@ -176,33 +100,53 @@ def handle_response(ext_json, model):
 
             # Send a message to the chat session and get the response
             response = chat_session.send_message(user_input)
-            return response.text
+            return markdown_to_text(response.text)
     except json.JSONDecodeError:
         print("Invalid JSON")
 
 
-def handle_api(json_res, model):
+def handle_api(json_res):
     module = json_res.get("module")
     params = json_res.get("parameters")
-    modules = os.listdir("./modules/")
     if module == "Weather":
         return weather.handle_res(params)
+    elif module == "Jokes":
+        return jokes.handle_res(params)
+
+    else:
+        return None
+
+
+def markdown_to_text(markdown_string):
+    """Converts a markdown string to plaintext"""
+
+    # md -> html -> text since BeautifulSoup can extract text cleanly
+    html = markdown(markdown_string)
+
+    # remove code snippets
+    html = re.sub(r"<pre>(.*?)</pre>", " ", html)
+    html = re.sub(r"<code>(.*?)</code >", " ", html)
+
+    # extract text
+    soup = BeautifulSoup(html, "html.parser")
+    text = "".join(soup.findAll(string=True))
+
+    return text
 
 
 def main():
     print(header)
     print("Welcome To ZBot")
-    print("Please Select The Mode")
-    get_mode()
-    output("Welcome To ZBot")
     model = setup_ai()
     while True:
-        user_input = inp("Give Query: ")
+        user_input = input("Give Query: ")
         if user_input:
             ext_json = response(user_input, model)
             if ext_json:
                 res = handle_response(ext_json, model)
-                output(res)
+                print()
+                print(res)
+                print()
             else:
                 print("Unknown Error")
                 exit(1)

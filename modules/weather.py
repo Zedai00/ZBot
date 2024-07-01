@@ -20,4 +20,4 @@ def handle_res(params):
         f"Humidity: {humidity}%, "
         f"Wind Speed: {wind_speed} m/s."
     )
-    return {"weather_info": weather_info}
+    return {"content": weather_info}
